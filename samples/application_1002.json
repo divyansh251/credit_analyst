@@ -1,0 +1,36 @@
+{
+  "application_id": "1002",
+  "submitted_at": "2026-06-11T14:05:00Z",
+  "applicant": {
+    "company_name": "Brightway Retail Group, LLC",
+    "legal_structure": "LLC",
+    "year_founded": 2017,
+    "ein": "47-5566123",
+    "industry": "Retail",
+    "sector_code": "RET",
+    "naics_code": "448140",
+    "employees": 78,
+    "headquarters": "Tampa, FL",
+    "primary_contact": {
+      "name": "Marcus Reyes",
+      "title": "Owner / Managing Member",
+      "email": "mreyes@brightwayretail.example",
+      "phone": "+1-813-555-0147"
+    }
+  },
+  "loan_request": {
+    "amount_requested": 1200000,
+    "currency": "USD",
+    "purpose": "Working capital and inventory build-out for three new store locations",
+    "requested_term_months": 48,
+    "loan_type": "Term loan, unsecured",
+    "collateral_offered": "None (unsecured request)",
+    "requested_rate_type": "Variable"
+  },
+  "banking_relationship": {
+    "existing_customer": false,
+    "relationship_years": 0,
+    "prior_facilities": "None at this institution"
+  },
+  "notes": "Aggressive expansion plan; margins compressed by recent vendor cost increases."
+}

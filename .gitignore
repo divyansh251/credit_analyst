@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Secrets
+.env
+
+# Generated artifacts
+outputs/*.pdf
+outputs/*.json
+!outputs/.gitkeep
+
+# Vector store
+.chroma/
+chroma_db/
+
+# Langflow runtime (local server DB, config, generated API key)
+.langflow/
+.langflow_api_key
+
+# Watcher state + runtime input drops (canonical data lives in samples/)
+inputs/*
+!inputs/.gitkeep
+
+# OS / IDE
+.DS_Store
+.idea/

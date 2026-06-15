@@ -1,0 +1,951 @@
+{
+  "name": "Credit Analyst",
+  "description": "Automated commercial credit memo drafting: ingest -> ratios -> benchmarks -> policy (RAG) -> risk scoring (Claude) -> PDF memo.",
+  "data": {
+    "nodes": [
+      {
+        "id": "CreditApplicationIngest",
+        "type": "genericNode",
+        "position": {
+          "x": 0,
+          "y": 0.0
+        },
+        "selected": false,
+        "data": {
+          "id": "CreditApplicationIngest",
+          "type": "CreditApplicationIngest",
+          "node": {
+            "template": {
+              "_type": "Component",
+              "application_id": {
+                "tool_mode": false,
+                "trace_as_input": true,
+                "trace_as_metadata": true,
+                "load_from_db": false,
+                "list": false,
+                "list_add_label": "Add More",
+                "override_skip": false,
+                "required": false,
+                "placeholder": "",
+                "show": true,
+                "name": "application_id",
+                "value": "1001",
+                "display_name": "Application ID",
+                "advanced": false,
+                "input_types": [
+                  "Message"
+                ],
+                "dynamic": false,
+                "info": "e.g. 1001 \u2014 used to locate application_<id>.json and financials_<id>.*",
+                "title_case": false,
+                "track_in_telemetry": false,
+                "type": "str",
+                "_input_type": "MessageTextInput"
+              },
+              "code": {
+                "type": "code",
+                "required": true,
+                "placeholder": "",
+                "list": false,
+                "show": true,
+                "multiline": true,
+                "value": "\"\"\"Langflow component (pipeline stage 1): Credit Application Ingest.\n\nEntry point of the Credit Analyst flow. Given an application id, it loads the\nstructured application JSON and parses the matching financial-statements file\ninto the canonical structure, emitting an accumulating \"analysis bundle\" Data\nobject that flows through the rest of the graph.\n\"\"\"\n\nfrom __future__ import annotations\n\nimport json\nimport os\nimport sys\n\n# --- bootstrap: put the project root (with lib/) on sys.path ---\n_ROOT = os.environ.get(\"CREDIT_ANALYST_ROOT\")\nif not _ROOT:\n    try:\n        _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))\n    except NameError:  # pragma: no cover - pasted into UI editor\n        _ROOT = os.getcwd()\nif _ROOT not in sys.path:\n    sys.path.insert(0, _ROOT)\n\nfrom langflow.custom import Component\nfrom langflow.io import MessageTextInput, Output\nfrom langflow.schema import Data\n\n\nclass CreditApplicationIngestComponent(Component):\n    display_name = \"Credit Application Ingest\"\n    description = (\"Loads application_<id>.json and parses financials_<id>.(pdf|xlsx) \"\n                   \"into a canonical analysis bundle.\")\n    icon = \"file-text\"\n    name = \"CreditApplicationIngest\"\n\n    inputs = [\n        MessageTextInput(\n            name=\"application_id\", display_name=\"Application ID\",\n            info=\"e.g. 1001 \u2014 used to locate application_<id>.json and financials_<id>.*\",\n            value=\"1001\",\n        ),\n        MessageTextInput(\n            name=\"input_dir\", display_name=\"Input Directory\",\n            info=\"Folder to search first; falls back to the bundled samples/ folder.\",\n            value=os.path.join(_ROOT, \"inputs\"),\n        ),\n    ]\n    outputs = [Output(name=\"bundle\", display_name=\"Analysis Bundle\", method=\"ingest\")]\n\n    def _resolve(self, app_id: str, input_dir: str) -> tuple[str, str]:\n        search_dirs = [input_dir, os.path.join(_ROOT, \"inputs\"), os.path.join(_ROOT, \"samples\")]\n        app_path = fin_path = None\n        for d in search_dirs:\n            if not d or not os.path.isdir(d):\n                continue\n            cand_app = os.path.join(d, f\"application_{app_id}.json\")\n            if app_path is None and os.path.isfile(cand_app):\n                app_path = cand_app\n            for ext in (\".pdf\", \".xlsx\", \".xlsm\", \".xls\"):\n                cand_fin = os.path.join(d, f\"financials_{app_id}{ext}\")\n                if fin_path is None and os.path.isfile(cand_fin):\n                    fin_path = cand_fin\n        if not app_path or not fin_path:\n            raise FileNotFoundError(\n                f\"Could not locate application_{app_id}.json and financials_{app_id}.* \"\n                f\"in {search_dirs}\")\n        return app_path, fin_path\n\n    def ingest(self) -> Data:\n        from lib.parsing import parse_financials\n\n        app_id = (self.application_id or \"\").strip()\n        input_dir = (self.input_dir or \"\").strip()\n        app_path, fin_path = self._resolve(app_id, input_dir)\n\n        with open(app_path, encoding=\"utf-8\") as fh:\n            application = json.load(fh)\n        parsed = parse_financials(fin_path)\n        if not parsed.get(\"sector_code\"):\n            parsed[\"sector_code\"] = application.get(\"applicant\", {}).get(\"sector_code\")\n\n        bundle = {\n            \"application_id\": app_id,\n            \"application\": application,\n            \"parsed\": parsed,\n            \"sources\": {\"application\": app_path, \"financials\": fin_path},\n        }\n        self.status = (f\"Ingested application {app_id}: \"\n                       f\"{len(parsed.get('years', []))} year(s), \"\n                       f\"{len(parsed.get('balance_sheet', {}))} balance-sheet items\")\n        return Data(data=bundle)\n",
+                "fileTypes": [],
+                "file_path": "",
+                "password": false,
+                "name": "code",
+                "advanced": true,
+                "dynamic": true,
+                "info": "",
+                "load_from_db": false,
+                "title_case": false
+              },
+              "input_dir": {
+                "tool_mode": false,
+                "trace_as_input": true,
+                "trace_as_metadata": true,
+                "load_from_db": false,
+                "list": false,
+                "list_add_label": "Add More",
+                "override_skip": false,
+                "required": false,
+                "placeholder": "",
+                "show": true,
+                "name": "input_dir",
+                "value": "/home/divyansh/freelance_projects/credit_risk_narrative_generator/inputs",
+                "display_name": "Input Directory",
+                "advanced": false,
+                "input_types": [
+                  "Message"
+                ],
+                "dynamic": false,
+                "info": "Folder to search first; falls back to the bundled samples/ folder.",
+                "title_case": false,
+                "track_in_telemetry": false,
+                "type": "str",
+                "_input_type": "MessageTextInput"
+              }
+            },
+            "description": "Loads application_<id>.json and parses financials_<id>.(pdf|xlsx) into a canonical analysis bundle.",
+            "icon": "file-text",
+            "base_classes": [
+              "JSON"
+            ],
+            "display_name": "Credit Application Ingest",
+            "documentation": "",
+            "minimized": false,
+            "custom_fields": {},
+            "output_types": [],
+            "pinned": false,
+            "conditional_paths": [],
+            "frozen": false,
+            "outputs": [
+              {
+                "types": [
+                  "JSON"
+                ],
+                "selected": "JSON",
+                "name": "bundle",
+                "display_name": "Analysis Bundle",
+                "method": "ingest",
+                "value": "__UNDEFINED__",
+                "cache": true,
+                "allows_loop": false,
+                "group_outputs": false,
+                "tool_mode": true,
+                "hidden": false,
+                "options": null,
+                "required_inputs": null
+              }
+            ],
+            "field_order": [],
+            "beta": false,
+            "legacy": false,
+            "edited": false,
+            "metadata": {},
+            "tool_mode": false
+          },
+          "showNode": true
+        }
+      },
+      {
+        "id": "RatioCalculator",
+        "type": "genericNode",
+        "position": {
+          "x": 600,
+          "y": 0.0
+        },
+        "selected": false,
+        "data": {
+          "id": "RatioCalculator",
+          "type": "RatioCalculator",
+          "node": {
+            "template": {
+              "_type": "Component",
+              "bundle": {
+                "tool_mode": false,
+                "trace_as_metadata": true,
+                "list": false,
+                "list_add_label": "Add More",
+                "trace_as_input": true,
+                "override_skip": false,
+                "required": false,
+                "placeholder": "",
+                "show": true,
+                "name": "bundle",
+                "value": "",
+                "display_name": "Analysis Bundle",
+                "advanced": false,
+                "input_types": [
+                  "Data",
+                  "JSON"
+                ],
+                "dynamic": false,
+                "info": "",
+                "title_case": false,
+                "track_in_telemetry": false,
+                "type": "other",
+                "_input_type": "JSONInput"
+              },
+              "code": {
+                "type": "code",
+                "required": true,
+                "placeholder": "",
+                "list": false,
+                "show": true,
+                "multiline": true,
+                "value": "\"\"\"Langflow component (pipeline stage 2): Ratio Calculator.\n\nComputes liquidity, leverage, profitability, and efficiency ratios for every\nfiscal year in the parsed statements and adds them to the analysis bundle.\n\"\"\"\n\nfrom __future__ import annotations\n\nimport os\nimport sys\n\n_ROOT = os.environ.get(\"CREDIT_ANALYST_ROOT\")\nif not _ROOT:\n    try:\n        _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))\n    except NameError:  # pragma: no cover\n        _ROOT = os.getcwd()\nif _ROOT not in sys.path:\n    sys.path.insert(0, _ROOT)\n\nfrom langflow.custom import Component\nfrom langflow.io import DataInput, Output\nfrom langflow.schema import Data\n\n\nclass RatioCalculatorComponent(Component):\n    display_name = \"Ratio Calculator\"\n    description = \"Computes liquidity, leverage, profitability and efficiency ratios.\"\n    icon = \"calculator\"\n    name = \"RatioCalculator\"\n\n    inputs = [DataInput(name=\"bundle\", display_name=\"Analysis Bundle\")]\n    outputs = [Output(name=\"bundle_out\", display_name=\"Analysis Bundle\", method=\"calculate\")]\n\n    def calculate(self) -> Data:\n        from lib.ratios import compute_ratios\n\n        bundle = dict(self.bundle.data)\n        bundle[\"ratios\"] = compute_ratios(bundle[\"parsed\"])\n        n = len(bundle[\"ratios\"][\"ratios\"])\n        self.status = f\"Computed {n} ratios for {bundle['ratios']['most_recent_year']}\"\n        return Data(data=bundle)\n",
+                "fileTypes": [],
+                "file_path": "",
+                "password": false,
+                "name": "code",
+                "advanced": true,
+                "dynamic": true,
+                "info": "",
+                "load_from_db": false,
+                "title_case": false
+              }
+            },
+            "description": "Computes liquidity, leverage, profitability and efficiency ratios.",
+            "icon": "calculator",
+            "base_classes": [
+              "JSON"
+            ],
+            "display_name": "Ratio Calculator",
+            "documentation": "",
+            "minimized": false,
+            "custom_fields": {},
+            "output_types": [],
+            "pinned": false,
+            "conditional_paths": [],
+            "frozen": false,
+            "outputs": [
+              {
+                "types": [
+                  "JSON"
+                ],
+                "selected": "JSON",
+                "name": "bundle_out",
+                "display_name": "Analysis Bundle",
+                "method": "calculate",
+                "value": "__UNDEFINED__",
+                "cache": true,
+                "allows_loop": false,
+                "group_outputs": false,
+                "tool_mode": true,
+                "hidden": false,
+                "options": null,
+                "required_inputs": null
+              }
+            ],
+            "field_order": [],
+            "beta": false,
+            "legacy": false,
+            "edited": false,
+            "metadata": {},
+            "tool_mode": false
+          },
+          "showNode": true
+        }
+      },
+      {
+        "id": "BenchmarkComparator",
+        "type": "genericNode",
+        "position": {
+          "x": 1200,
+          "y": 0.0
+        },
+        "selected": false,
+        "data": {
+          "id": "BenchmarkComparator",
+          "type": "BenchmarkComparator",
+          "node": {
+            "template": {
+              "_type": "Component",
+              "bundle": {
+                "tool_mode": false,
+                "trace_as_metadata": true,
+                "list": false,
+                "list_add_label": "Add More",
+                "trace_as_input": true,
+                "override_skip": false,
+                "required": false,
+                "placeholder": "",
+                "show": true,
+                "name": "bundle",
+                "value": "",
+                "display_name": "Analysis Bundle",
+                "advanced": false,
+                "input_types": [
+                  "Data",
+                  "JSON"
+                ],
+                "dynamic": false,
+                "info": "",
+                "title_case": false,
+                "track_in_telemetry": false,
+                "type": "other",
+                "_input_type": "JSONInput"
+              },
+              "benchmark_csv": {
+                "tool_mode": false,
+                "trace_as_input": true,
+                "trace_as_metadata": true,
+                "load_from_db": false,
+                "list": false,
+                "list_add_label": "Add More",
+                "override_skip": false,
+                "required": false,
+                "placeholder": "",
+                "show": true,
+                "name": "benchmark_csv",
+                "value": "/home/divyansh/freelance_projects/credit_risk_narrative_generator/data/benchmarks/industry_benchmarks.csv",
+                "display_name": "Benchmark CSV Path",
+                "advanced": true,
+                "input_types": [
+                  "Message"
+                ],
+                "dynamic": false,
+                "info": "",
+                "title_case": false,
+                "track_in_telemetry": false,
+                "type": "str",
+                "_input_type": "MessageTextInput"
+              },
+              "code": {
+                "type": "code",
+                "required": true,
+                "placeholder": "",
+                "list": false,
+                "show": true,
+                "multiline": true,
+                "value": "\"\"\"Langflow component (pipeline stage 3): Benchmark Comparator.\n\nCompares the most-recent-year ratios against the applicant's sector benchmarks\n(directional z-scores) and records the flagged deviations on the bundle.\n\"\"\"\n\nfrom __future__ import annotations\n\nimport os\nimport sys\n\n_ROOT = os.environ.get(\"CREDIT_ANALYST_ROOT\")\nif not _ROOT:\n    try:\n        _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))\n    except NameError:  # pragma: no cover\n        _ROOT = os.getcwd()\nif _ROOT not in sys.path:\n    sys.path.insert(0, _ROOT)\n\nfrom langflow.custom import Component\nfrom langflow.io import DataInput, MessageTextInput, Output\nfrom langflow.schema import Data\n\n_DEFAULT_CSV = os.path.join(_ROOT, \"data\", \"benchmarks\", \"industry_benchmarks.csv\")\n\n\nclass BenchmarkComparatorComponent(Component):\n    display_name = \"Benchmark Comparator\"\n    description = \"Flags ratios deviating from industry/sector benchmarks (z-score).\"\n    icon = \"trending-up\"\n    name = \"BenchmarkComparator\"\n\n    inputs = [\n        DataInput(name=\"bundle\", display_name=\"Analysis Bundle\"),\n        MessageTextInput(\n            name=\"benchmark_csv\", display_name=\"Benchmark CSV Path\",\n            value=_DEFAULT_CSV, advanced=True),\n    ]\n    outputs = [Output(name=\"bundle_out\", display_name=\"Analysis Bundle\", method=\"compare\")]\n\n    def compare(self) -> Data:\n        from lib.benchmarks import compare_to_benchmarks\n\n        bundle = dict(self.bundle.data)\n        sector = bundle[\"parsed\"].get(\"sector_code\")\n        csv_path = (self.benchmark_csv or \"\").strip() or _DEFAULT_CSV\n        bundle[\"benchmark\"] = compare_to_benchmarks(bundle[\"ratios\"], sector, csv_path)\n        flags = len(bundle[\"benchmark\"][\"flags\"])\n        self.status = (f\"Sector {bundle['benchmark']['sector_code']}: \"\n                       f\"{flags} ratio(s) flagged vs benchmark\")\n        return Data(data=bundle)\n",
+                "fileTypes": [],
+                "file_path": "",
+                "password": false,
+                "name": "code",
+                "advanced": true,
+                "dynamic": true,
+                "info": "",
+                "load_from_db": false,
+                "title_case": false
+              }
+            },
+            "description": "Flags ratios deviating from industry/sector benchmarks (z-score).",
+            "icon": "trending-up",
+            "base_classes": [
+              "JSON"
+            ],
+            "display_name": "Benchmark Comparator",
+            "documentation": "",
+            "minimized": false,
+            "custom_fields": {},
+            "output_types": [],
+            "pinned": false,
+            "conditional_paths": [],
+            "frozen": false,
+            "outputs": [
+              {
+                "types": [
+                  "JSON"
+                ],
+                "selected": "JSON",
+                "name": "bundle_out",
+                "display_name": "Analysis Bundle",
+                "method": "compare",
+                "value": "__UNDEFINED__",
+                "cache": true,
+                "allows_loop": false,
+                "group_outputs": false,
+                "tool_mode": true,
+                "hidden": false,
+                "options": null,
+                "required_inputs": null
+              }
+            ],
+            "field_order": [],
+            "beta": false,
+            "legacy": false,
+            "edited": false,
+            "metadata": {},
+            "tool_mode": false
+          },
+          "showNode": true
+        }
+      },
+      {
+        "id": "PolicyCompliance",
+        "type": "genericNode",
+        "position": {
+          "x": 1800,
+          "y": 0.0
+        },
+        "selected": false,
+        "data": {
+          "id": "PolicyCompliance",
+          "type": "PolicyCompliance",
+          "node": {
+            "template": {
+              "_type": "Component",
+              "bundle": {
+                "tool_mode": false,
+                "trace_as_metadata": true,
+                "list": false,
+                "list_add_label": "Add More",
+                "trace_as_input": true,
+                "override_skip": false,
+                "required": false,
+                "placeholder": "",
+                "show": true,
+                "name": "bundle",
+                "value": "",
+                "display_name": "Analysis Bundle",
+                "advanced": false,
+                "input_types": [
+                  "Data",
+                  "JSON"
+                ],
+                "dynamic": false,
+                "info": "",
+                "title_case": false,
+                "track_in_telemetry": false,
+                "type": "other",
+                "_input_type": "JSONInput"
+              },
+              "code": {
+                "type": "code",
+                "required": true,
+                "placeholder": "",
+                "list": false,
+                "show": true,
+                "multiline": true,
+                "value": "\"\"\"Langflow component (pipeline stage 4): Policy Compliance (RAG).\n\nEmbeds the credit-policy clauses into a local Chroma vector store, retrieves the\nclauses relevant to the applicant's profile, and evaluates the deterministic\nhard/soft policy thresholds \u2014 recording findings and cited clause text.\n\"\"\"\n\nfrom __future__ import annotations\n\nimport os\nimport sys\n\n_ROOT = os.environ.get(\"CREDIT_ANALYST_ROOT\")\nif not _ROOT:\n    try:\n        _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))\n    except NameError:  # pragma: no cover\n        _ROOT = os.getcwd()\nif _ROOT not in sys.path:\n    sys.path.insert(0, _ROOT)\n\nfrom langflow.custom import Component\nfrom langflow.io import BoolInput, DataInput, MessageTextInput, Output\nfrom langflow.schema import Data\n\n_DEFAULT_MD = os.path.join(_ROOT, \"data\", \"policy\", \"credit_policy.md\")\n_DEFAULT_CHROMA = os.path.join(_ROOT, \".chroma\")\n\n\nclass PolicyComplianceComponent(Component):\n    display_name = \"Policy Compliance (RAG)\"\n    description = \"Retrieves relevant credit-policy clauses and evaluates compliance.\"\n    icon = \"shield-check\"\n    name = \"PolicyCompliance\"\n\n    inputs = [\n        DataInput(name=\"bundle\", display_name=\"Analysis Bundle\"),\n        MessageTextInput(name=\"policy_md\", display_name=\"Policy Markdown Path\",\n                         value=_DEFAULT_MD, advanced=True),\n        MessageTextInput(name=\"persist_dir\", display_name=\"Chroma Persist Dir\",\n                         value=_DEFAULT_CHROMA, advanced=True),\n        BoolInput(name=\"use_vector\", display_name=\"Use Vector Store (Chroma)\",\n                  value=True, advanced=True,\n                  info=\"If off (or Chroma unavailable), falls back to keyword retrieval.\"),\n    ]\n    outputs = [Output(name=\"bundle_out\", display_name=\"Analysis Bundle\", method=\"evaluate\")]\n\n    def evaluate(self) -> Data:\n        from lib.policy import PolicyStore, evaluate_policy\n\n        bundle = dict(self.bundle.data)\n        store = PolicyStore.build(\n            md_path=(self.policy_md or \"\").strip() or _DEFAULT_MD,\n            persist_dir=(self.persist_dir or \"\").strip() or _DEFAULT_CHROMA,\n            prefer_vector=bool(self.use_vector),\n        )\n        bundle[\"policy\"] = evaluate_policy(\n            bundle[\"application\"], bundle[\"parsed\"],\n            bundle[\"ratios\"], bundle[\"benchmark\"], store=store,\n        )\n        s = bundle[\"policy\"][\"summary\"]\n        self.status = (f\"Policy ({bundle['policy']['retrieval_mode']}): \"\n                       f\"{s['hard_fails']} hard, {s['soft_fails']} soft, {s['conditions']} cond\")\n        return Data(data=bundle)\n",
+                "fileTypes": [],
+                "file_path": "",
+                "password": false,
+                "name": "code",
+                "advanced": true,
+                "dynamic": true,
+                "info": "",
+                "load_from_db": false,
+                "title_case": false
+              },
+              "persist_dir": {
+                "tool_mode": false,
+                "trace_as_input": true,
+                "trace_as_metadata": true,
+                "load_from_db": false,
+                "list": false,
+                "list_add_label": "Add More",
+                "override_skip": false,
+                "required": false,
+                "placeholder": "",
+                "show": true,
+                "name": "persist_dir",
+                "value": "/home/divyansh/freelance_projects/credit_risk_narrative_generator/.chroma",
+                "display_name": "Chroma Persist Dir",
+                "advanced": true,
+                "input_types": [
+                  "Message"
+                ],
+                "dynamic": false,
+                "info": "",
+                "title_case": false,
+                "track_in_telemetry": false,
+                "type": "str",
+                "_input_type": "MessageTextInput"
+              },
+              "policy_md": {
+                "tool_mode": false,
+                "trace_as_input": true,
+                "trace_as_metadata": true,
+                "load_from_db": false,
+                "list": false,
+                "list_add_label": "Add More",
+                "override_skip": false,
+                "required": false,
+                "placeholder": "",
+                "show": true,
+                "name": "policy_md",
+                "value": "/home/divyansh/freelance_projects/credit_risk_narrative_generator/data/policy/credit_policy.md",
+                "display_name": "Policy Markdown Path",
+                "advanced": true,
+                "input_types": [
+                  "Message"
+                ],
+                "dynamic": false,
+                "info": "",
+                "title_case": false,
+                "track_in_telemetry": false,
+                "type": "str",
+                "_input_type": "MessageTextInput"
+              },
+              "use_vector": {
+                "tool_mode": false,
+                "trace_as_metadata": true,
+                "list": false,
+                "list_add_label": "Add More",
+                "override_skip": false,
+                "required": false,
+                "placeholder": "",
+                "show": true,
+                "name": "use_vector",
+                "value": true,
+                "display_name": "Use Vector Store (Chroma)",
+                "advanced": true,
+                "dynamic": false,
+                "info": "If off (or Chroma unavailable), falls back to keyword retrieval.",
+                "title_case": false,
+                "track_in_telemetry": true,
+                "type": "bool",
+                "_input_type": "BoolInput"
+              }
+            },
+            "description": "Retrieves relevant credit-policy clauses and evaluates compliance.",
+            "icon": "shield-check",
+            "base_classes": [
+              "JSON"
+            ],
+            "display_name": "Policy Compliance (RAG)",
+            "documentation": "",
+            "minimized": false,
+            "custom_fields": {},
+            "output_types": [],
+            "pinned": false,
+            "conditional_paths": [],
+            "frozen": false,
+            "outputs": [
+              {
+                "types": [
+                  "JSON"
+                ],
+                "selected": "JSON",
+                "name": "bundle_out",
+                "display_name": "Analysis Bundle",
+                "method": "evaluate",
+                "value": "__UNDEFINED__",
+                "cache": true,
+                "allows_loop": false,
+                "group_outputs": false,
+                "tool_mode": true,
+                "hidden": false,
+                "options": null,
+                "required_inputs": null
+              }
+            ],
+            "field_order": [],
+            "beta": false,
+            "legacy": false,
+            "edited": false,
+            "metadata": {},
+            "tool_mode": false
+          },
+          "showNode": true
+        }
+      },
+      {
+        "id": "RiskScoring",
+        "type": "genericNode",
+        "position": {
+          "x": 2400,
+          "y": 0.0
+        },
+        "selected": false,
+        "data": {
+          "id": "RiskScoring",
+          "type": "RiskScoring",
+          "node": {
+            "template": {
+              "_type": "Component",
+              "bundle": {
+                "tool_mode": false,
+                "trace_as_metadata": true,
+                "list": false,
+                "list_add_label": "Add More",
+                "trace_as_input": true,
+                "override_skip": false,
+                "required": false,
+                "placeholder": "",
+                "show": true,
+                "name": "bundle",
+                "value": "",
+                "display_name": "Analysis Bundle",
+                "advanced": false,
+                "input_types": [
+                  "Data",
+                  "JSON"
+                ],
+                "dynamic": false,
+                "info": "",
+                "title_case": false,
+                "track_in_telemetry": false,
+                "type": "other",
+                "_input_type": "JSONInput"
+              },
+              "anthropic_api_key": {
+                "load_from_db": true,
+                "override_skip": false,
+                "required": false,
+                "placeholder": "",
+                "show": true,
+                "name": "anthropic_api_key",
+                "value": "",
+                "display_name": "Anthropic API Key",
+                "advanced": false,
+                "input_types": [],
+                "dynamic": false,
+                "info": "Optional. If empty, uses the deterministic mock engine.",
+                "title_case": false,
+                "track_in_telemetry": false,
+                "password": true,
+                "type": "str",
+                "_input_type": "SecretStrInput"
+              },
+              "code": {
+                "type": "code",
+                "required": true,
+                "placeholder": "",
+                "list": false,
+                "show": true,
+                "multiline": true,
+                "value": "\"\"\"Langflow component (pipeline stage 5): Risk Scoring & Recommendation.\n\nSynthesises ratios, benchmark deviations, and policy findings into a risk\nrating and recommendation. Uses Claude when an API key is supplied; otherwise\nfalls back to the deterministic policy-driven mock engine.\n\"\"\"\n\nfrom __future__ import annotations\n\nimport os\nimport sys\n\n_ROOT = os.environ.get(\"CREDIT_ANALYST_ROOT\")\nif not _ROOT:\n    try:\n        _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))\n    except NameError:  # pragma: no cover\n        _ROOT = os.getcwd()\nif _ROOT not in sys.path:\n    sys.path.insert(0, _ROOT)\n\nfrom langflow.custom import Component\nfrom langflow.io import DataInput, MessageTextInput, Output, SecretStrInput\nfrom langflow.schema import Data\n\n\nclass RiskScoringComponent(Component):\n    display_name = \"Risk Scoring\"\n    description = (\"Synthesises analysis into a risk rating + recommendation via Claude \"\n                   \"(falls back to a deterministic engine when no API key is set).\")\n    icon = \"gauge\"\n    name = \"RiskScoring\"\n\n    inputs = [\n        DataInput(name=\"bundle\", display_name=\"Analysis Bundle\"),\n        SecretStrInput(name=\"anthropic_api_key\", display_name=\"Anthropic API Key\",\n                       info=\"Optional. If empty, uses the deterministic mock engine.\",\n                       required=False),\n        MessageTextInput(name=\"model\", display_name=\"Claude Model\",\n                         value=\"claude-opus-4-8\", advanced=True),\n    ]\n    outputs = [Output(name=\"bundle_out\", display_name=\"Analysis Bundle\", method=\"score\")]\n\n    def score(self) -> Data:\n        from lib.scoring import score_risk\n\n        key = (self.anthropic_api_key or \"\").strip()\n        if key:\n            os.environ[\"ANTHROPIC_API_KEY\"] = key\n        if (self.model or \"\").strip():\n            os.environ[\"CLAUDE_MODEL\"] = self.model.strip()\n\n        bundle = dict(self.bundle.data)\n        prefer_llm = bool(key) or bool(os.environ.get(\"ANTHROPIC_API_KEY\"))\n        verdict = score_risk(\n            bundle[\"application\"], bundle[\"ratios\"],\n            bundle[\"benchmark\"], bundle[\"policy\"], prefer_llm=prefer_llm,\n        )\n        bundle[\"verdict\"] = verdict\n        self.status = (f\"{verdict['risk_rating']} risk / {verdict['recommendation']} \"\n                       f\"(engine: {verdict['engine']})\")\n        return Data(data=bundle)\n",
+                "fileTypes": [],
+                "file_path": "",
+                "password": false,
+                "name": "code",
+                "advanced": true,
+                "dynamic": true,
+                "info": "",
+                "load_from_db": false,
+                "title_case": false
+              },
+              "model": {
+                "tool_mode": false,
+                "trace_as_input": true,
+                "trace_as_metadata": true,
+                "load_from_db": false,
+                "list": false,
+                "list_add_label": "Add More",
+                "override_skip": false,
+                "required": false,
+                "placeholder": "",
+                "show": true,
+                "name": "model",
+                "value": "claude-opus-4-8",
+                "display_name": "Claude Model",
+                "advanced": true,
+                "input_types": [
+                  "Message"
+                ],
+                "dynamic": false,
+                "info": "",
+                "title_case": false,
+                "track_in_telemetry": false,
+                "type": "str",
+                "_input_type": "MessageTextInput"
+              }
+            },
+            "description": "Synthesises analysis into a risk rating + recommendation via Claude (falls back to a deterministic engine when no API key is set).",
+            "icon": "gauge",
+            "base_classes": [
+              "JSON"
+            ],
+            "display_name": "Risk Scoring",
+            "documentation": "",
+            "minimized": false,
+            "custom_fields": {},
+            "output_types": [],
+            "pinned": false,
+            "conditional_paths": [],
+            "frozen": false,
+            "outputs": [
+              {
+                "types": [
+                  "JSON"
+                ],
+                "selected": "JSON",
+                "name": "bundle_out",
+                "display_name": "Analysis Bundle",
+                "method": "score",
+                "value": "__UNDEFINED__",
+                "cache": true,
+                "allows_loop": false,
+                "group_outputs": false,
+                "tool_mode": true,
+                "hidden": false,
+                "options": null,
+                "required_inputs": null
+              }
+            ],
+            "field_order": [],
+            "beta": false,
+            "legacy": false,
+            "edited": false,
+            "metadata": {},
+            "tool_mode": false
+          },
+          "showNode": true
+        }
+      },
+      {
+        "id": "MemoGenerator",
+        "type": "genericNode",
+        "position": {
+          "x": 3000,
+          "y": 0.0
+        },
+        "selected": false,
+        "data": {
+          "id": "MemoGenerator",
+          "type": "MemoGenerator",
+          "node": {
+            "template": {
+              "_type": "Component",
+              "bundle": {
+                "tool_mode": false,
+                "trace_as_metadata": true,
+                "list": false,
+                "list_add_label": "Add More",
+                "trace_as_input": true,
+                "override_skip": false,
+                "required": false,
+                "placeholder": "",
+                "show": true,
+                "name": "bundle",
+                "value": "",
+                "display_name": "Analysis Bundle",
+                "advanced": false,
+                "input_types": [
+                  "Data",
+                  "JSON"
+                ],
+                "dynamic": false,
+                "info": "",
+                "title_case": false,
+                "track_in_telemetry": false,
+                "type": "other",
+                "_input_type": "JSONInput"
+              },
+              "code": {
+                "type": "code",
+                "required": true,
+                "placeholder": "",
+                "list": false,
+                "show": true,
+                "multiline": true,
+                "value": "\"\"\"Langflow component (pipeline stage 6): Memo Generator.\n\nAssembles the structured credit memo and renders both the PDF\n(credit_memo_<id>.pdf) and the JSON summary (analysis_<id>.json) to the output\ndirectory. Terminal node of the Credit Analyst flow.\n\"\"\"\n\nfrom __future__ import annotations\n\nimport os\nimport sys\n\n_ROOT = os.environ.get(\"CREDIT_ANALYST_ROOT\")\nif not _ROOT:\n    try:\n        _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))\n    except NameError:  # pragma: no cover\n        _ROOT = os.getcwd()\nif _ROOT not in sys.path:\n    sys.path.insert(0, _ROOT)\n\nfrom langflow.custom import Component\nfrom langflow.io import DataInput, MessageTextInput, Output\nfrom langflow.schema import Data\n\n_DEFAULT_OUT = os.path.join(_ROOT, \"outputs\")\n\n\nclass MemoGeneratorComponent(Component):\n    display_name = \"Memo Generator\"\n    description = \"Renders the credit memo to PDF and writes the JSON analysis summary.\"\n    icon = \"file-output\"\n    name = \"MemoGenerator\"\n\n    inputs = [\n        DataInput(name=\"bundle\", display_name=\"Analysis Bundle\"),\n        MessageTextInput(name=\"output_dir\", display_name=\"Output Directory\",\n                         value=_DEFAULT_OUT, advanced=True),\n    ]\n    outputs = [Output(name=\"result\", display_name=\"Result\", method=\"generate\")]\n\n    def generate(self) -> Data:\n        from lib.memo import build_memo, generate_outputs\n\n        bundle = dict(self.bundle.data)\n        out_dir = (self.output_dir or \"\").strip() or _DEFAULT_OUT\n        memo = build_memo(\n            bundle[\"application\"], bundle[\"parsed\"], bundle[\"ratios\"],\n            bundle[\"benchmark\"], bundle[\"policy\"], bundle[\"verdict\"],\n        )\n        paths = generate_outputs(memo, out_dir)\n        result = {\n            \"application_id\": memo[\"application_id\"],\n            \"company_name\": memo[\"company_name\"],\n            \"risk_rating\": memo[\"risk_rating\"],\n            \"recommendation\": memo[\"recommendation\"],\n            \"pdf_path\": paths[\"pdf\"],\n            \"json_path\": paths[\"json\"],\n        }\n        self.status = (f\"{memo['company_name']}: {memo['risk_rating']} / \"\n                       f\"{memo['recommendation']} -> {os.path.basename(paths['pdf'])}\")\n        return Data(data=result)\n",
+                "fileTypes": [],
+                "file_path": "",
+                "password": false,
+                "name": "code",
+                "advanced": true,
+                "dynamic": true,
+                "info": "",
+                "load_from_db": false,
+                "title_case": false
+              },
+              "output_dir": {
+                "tool_mode": false,
+                "trace_as_input": true,
+                "trace_as_metadata": true,
+                "load_from_db": false,
+                "list": false,
+                "list_add_label": "Add More",
+                "override_skip": false,
+                "required": false,
+                "placeholder": "",
+                "show": true,
+                "name": "output_dir",
+                "value": "/home/divyansh/freelance_projects/credit_risk_narrative_generator/outputs",
+                "display_name": "Output Directory",
+                "advanced": true,
+                "input_types": [
+                  "Message"
+                ],
+                "dynamic": false,
+                "info": "",
+                "title_case": false,
+                "track_in_telemetry": false,
+                "type": "str",
+                "_input_type": "MessageTextInput"
+              }
+            },
+            "description": "Renders the credit memo to PDF and writes the JSON analysis summary.",
+            "icon": "file-output",
+            "base_classes": [
+              "JSON"
+            ],
+            "display_name": "Memo Generator",
+            "documentation": "",
+            "minimized": false,
+            "custom_fields": {},
+            "output_types": [],
+            "pinned": false,
+            "conditional_paths": [],
+            "frozen": false,
+            "outputs": [
+              {
+                "types": [
+                  "JSON"
+                ],
+                "selected": "JSON",
+                "name": "result",
+                "display_name": "Result",
+                "method": "generate",
+                "value": "__UNDEFINED__",
+                "cache": true,
+                "allows_loop": false,
+                "group_outputs": false,
+                "tool_mode": true,
+                "hidden": false,
+                "options": null,
+                "required_inputs": null
+              }
+            ],
+            "field_order": [],
+            "beta": false,
+            "legacy": false,
+            "edited": false,
+            "metadata": {},
+            "tool_mode": false
+          },
+          "showNode": true
+        }
+      }
+    ],
+    "edges": [
+      {
+        "animated": false,
+        "className": "",
+        "data": {
+          "sourceHandle": {
+            "dataType": "CreditApplicationIngest",
+            "id": "CreditApplicationIngest",
+            "name": "bundle",
+            "output_types": [
+              "JSON"
+            ]
+          },
+          "targetHandle": {
+            "fieldName": "bundle",
+            "id": "RatioCalculator",
+            "inputTypes": [
+              "Data",
+              "JSON"
+            ],
+            "type": "other"
+          }
+        },
+        "id": "reactflow__edge-CreditApplicationIngest{\u0153dataType\u0153:\u0153CreditApplicationIngest\u0153,\u0153id\u0153:\u0153CreditApplicationIngest\u0153,\u0153name\u0153:\u0153bundle\u0153,\u0153output_types\u0153:[\u0153JSON\u0153]}-RatioCalculator{\u0153fieldName\u0153:\u0153bundle\u0153,\u0153id\u0153:\u0153RatioCalculator\u0153,\u0153inputTypes\u0153:[\u0153Data\u0153,\u0153JSON\u0153],\u0153type\u0153:\u0153other\u0153}",
+        "selected": false,
+        "source": "CreditApplicationIngest",
+        "sourceHandle": "{\u0153dataType\u0153:\u0153CreditApplicationIngest\u0153,\u0153id\u0153:\u0153CreditApplicationIngest\u0153,\u0153name\u0153:\u0153bundle\u0153,\u0153output_types\u0153:[\u0153JSON\u0153]}",
+        "target": "RatioCalculator",
+        "targetHandle": "{\u0153fieldName\u0153:\u0153bundle\u0153,\u0153id\u0153:\u0153RatioCalculator\u0153,\u0153inputTypes\u0153:[\u0153Data\u0153,\u0153JSON\u0153],\u0153type\u0153:\u0153other\u0153}"
+      },
+      {
+        "animated": false,
+        "className": "",
+        "data": {
+          "sourceHandle": {
+            "dataType": "RatioCalculator",
+            "id": "RatioCalculator",
+            "name": "bundle_out",
+            "output_types": [
+              "JSON"
+            ]
+          },
+          "targetHandle": {
+            "fieldName": "bundle",
+            "id": "BenchmarkComparator",
+            "inputTypes": [
+              "Data",
+              "JSON"
+            ],
+            "type": "other"
+          }
+        },
+        "id": "reactflow__edge-RatioCalculator{\u0153dataType\u0153:\u0153RatioCalculator\u0153,\u0153id\u0153:\u0153RatioCalculator\u0153,\u0153name\u0153:\u0153bundle_out\u0153,\u0153output_types\u0153:[\u0153JSON\u0153]}-BenchmarkComparator{\u0153fieldName\u0153:\u0153bundle\u0153,\u0153id\u0153:\u0153BenchmarkComparator\u0153,\u0153inputTypes\u0153:[\u0153Data\u0153,\u0153JSON\u0153],\u0153type\u0153:\u0153other\u0153}",
+        "selected": false,
+        "source": "RatioCalculator",
+        "sourceHandle": "{\u0153dataType\u0153:\u0153RatioCalculator\u0153,\u0153id\u0153:\u0153RatioCalculator\u0153,\u0153name\u0153:\u0153bundle_out\u0153,\u0153output_types\u0153:[\u0153JSON\u0153]}",
+        "target": "BenchmarkComparator",
+        "targetHandle": "{\u0153fieldName\u0153:\u0153bundle\u0153,\u0153id\u0153:\u0153BenchmarkComparator\u0153,\u0153inputTypes\u0153:[\u0153Data\u0153,\u0153JSON\u0153],\u0153type\u0153:\u0153other\u0153}"
+      },
+      {
+        "animated": false,
+        "className": "",
+        "data": {
+          "sourceHandle": {
+            "dataType": "BenchmarkComparator",
+            "id": "BenchmarkComparator",
+            "name": "bundle_out",
+            "output_types": [
+              "JSON"
+            ]
+          },
+          "targetHandle": {
+            "fieldName": "bundle",
+            "id": "PolicyCompliance",
+            "inputTypes": [
+              "Data",
+              "JSON"
+            ],
+            "type": "other"
+          }
+        },
+        "id": "reactflow__edge-BenchmarkComparator{\u0153dataType\u0153:\u0153BenchmarkComparator\u0153,\u0153id\u0153:\u0153BenchmarkComparator\u0153,\u0153name\u0153:\u0153bundle_out\u0153,\u0153output_types\u0153:[\u0153JSON\u0153]}-PolicyCompliance{\u0153fieldName\u0153:\u0153bundle\u0153,\u0153id\u0153:\u0153PolicyCompliance\u0153,\u0153inputTypes\u0153:[\u0153Data\u0153,\u0153JSON\u0153],\u0153type\u0153:\u0153other\u0153}",
+        "selected": false,
+        "source": "BenchmarkComparator",
+        "sourceHandle": "{\u0153dataType\u0153:\u0153BenchmarkComparator\u0153,\u0153id\u0153:\u0153BenchmarkComparator\u0153,\u0153name\u0153:\u0153bundle_out\u0153,\u0153output_types\u0153:[\u0153JSON\u0153]}",
+        "target": "PolicyCompliance",
+        "targetHandle": "{\u0153fieldName\u0153:\u0153bundle\u0153,\u0153id\u0153:\u0153PolicyCompliance\u0153,\u0153inputTypes\u0153:[\u0153Data\u0153,\u0153JSON\u0153],\u0153type\u0153:\u0153other\u0153}"
+      },
+      {
+        "animated": false,
+        "className": "",
+        "data": {
+          "sourceHandle": {
+            "dataType": "PolicyCompliance",
+            "id": "PolicyCompliance",
+            "name": "bundle_out",
+            "output_types": [
+              "JSON"
+            ]
+          },
+          "targetHandle": {
+            "fieldName": "bundle",
+            "id": "RiskScoring",
+            "inputTypes": [
+              "Data",
+              "JSON"
+            ],
+            "type": "other"
+          }
+        },
+        "id": "reactflow__edge-PolicyCompliance{\u0153dataType\u0153:\u0153PolicyCompliance\u0153,\u0153id\u0153:\u0153PolicyCompliance\u0153,\u0153name\u0153:\u0153bundle_out\u0153,\u0153output_types\u0153:[\u0153JSON\u0153]}-RiskScoring{\u0153fieldName\u0153:\u0153bundle\u0153,\u0153id\u0153:\u0153RiskScoring\u0153,\u0153inputTypes\u0153:[\u0153Data\u0153,\u0153JSON\u0153],\u0153type\u0153:\u0153other\u0153}",
+        "selected": false,
+        "source": "PolicyCompliance",
+        "sourceHandle": "{\u0153dataType\u0153:\u0153PolicyCompliance\u0153,\u0153id\u0153:\u0153PolicyCompliance\u0153,\u0153name\u0153:\u0153bundle_out\u0153,\u0153output_types\u0153:[\u0153JSON\u0153]}",
+        "target": "RiskScoring",
+        "targetHandle": "{\u0153fieldName\u0153:\u0153bundle\u0153,\u0153id\u0153:\u0153RiskScoring\u0153,\u0153inputTypes\u0153:[\u0153Data\u0153,\u0153JSON\u0153],\u0153type\u0153:\u0153other\u0153}"
+      },
+      {
+        "animated": false,
+        "className": "",
+        "data": {
+          "sourceHandle": {
+            "dataType": "RiskScoring",
+            "id": "RiskScoring",
+            "name": "bundle_out",
+            "output_types": [
+              "JSON"
+            ]
+          },
+          "targetHandle": {
+            "fieldName": "bundle",
+            "id": "MemoGenerator",
+            "inputTypes": [
+              "Data",
+              "JSON"
+            ],
+            "type": "other"
+          }
+        },
+        "id": "reactflow__edge-RiskScoring{\u0153dataType\u0153:\u0153RiskScoring\u0153,\u0153id\u0153:\u0153RiskScoring\u0153,\u0153name\u0153:\u0153bundle_out\u0153,\u0153output_types\u0153:[\u0153JSON\u0153]}-MemoGenerator{\u0153fieldName\u0153:\u0153bundle\u0153,\u0153id\u0153:\u0153MemoGenerator\u0153,\u0153inputTypes\u0153:[\u0153Data\u0153,\u0153JSON\u0153],\u0153type\u0153:\u0153other\u0153}",
+        "selected": false,
+        "source": "RiskScoring",
+        "sourceHandle": "{\u0153dataType\u0153:\u0153RiskScoring\u0153,\u0153id\u0153:\u0153RiskScoring\u0153,\u0153name\u0153:\u0153bundle_out\u0153,\u0153output_types\u0153:[\u0153JSON\u0153]}",
+        "target": "MemoGenerator",
+        "targetHandle": "{\u0153fieldName\u0153:\u0153bundle\u0153,\u0153id\u0153:\u0153MemoGenerator\u0153,\u0153inputTypes\u0153:[\u0153Data\u0153,\u0153JSON\u0153],\u0153type\u0153:\u0153other\u0153}"
+      }
+    ],
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "zoom": 1
+    }
+  },
+  "endpoint_name": "credit-analyst",
+  "is_component": false
+}

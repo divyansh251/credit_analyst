@@ -1,0 +1,36 @@
+{
+  "application_id": "1001",
+  "submitted_at": "2026-06-10T09:32:00Z",
+  "applicant": {
+    "company_name": "Apex Precision Components, Inc.",
+    "legal_structure": "C-Corporation",
+    "year_founded": 2009,
+    "ein": "84-1928374",
+    "industry": "Manufacturing",
+    "sector_code": "MFG",
+    "naics_code": "332710",
+    "employees": 145,
+    "headquarters": "Akron, OH",
+    "primary_contact": {
+      "name": "Dana Whitfield",
+      "title": "CFO",
+      "email": "dwhitfield@apexprecision.example",
+      "phone": "+1-330-555-0182"
+    }
+  },
+  "loan_request": {
+    "amount_requested": 2500000,
+    "currency": "USD",
+    "purpose": "Purchase of two CNC machining centers and facility expansion",
+    "requested_term_months": 60,
+    "loan_type": "Term loan, equipment-secured",
+    "collateral_offered": "New equipment (first lien) + existing machinery",
+    "requested_rate_type": "Fixed"
+  },
+  "banking_relationship": {
+    "existing_customer": true,
+    "relationship_years": 6,
+    "prior_facilities": "Revolving line of credit ($750k), no delinquencies"
+  },
+  "notes": "Strong order backlog; expanding to serve a new aerospace contract."
+}

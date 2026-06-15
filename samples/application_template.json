@@ -1,0 +1,36 @@
+{
+  "application_id": "REPLACE_WITH_ID",
+  "submitted_at": "2026-06-15T09:00:00Z",
+  "applicant": {
+    "company_name": "Your Company, Inc.",
+    "legal_structure": "C-Corporation",
+    "year_founded": 2010,
+    "ein": "00-0000000",
+    "industry": "Manufacturing",
+    "sector_code": "MFG",
+    "naics_code": "000000",
+    "employees": 100,
+    "headquarters": "City, ST",
+    "primary_contact": {
+      "name": "Full Name",
+      "title": "CFO",
+      "email": "name@company.example",
+      "phone": "+1-000-555-0000"
+    }
+  },
+  "loan_request": {
+    "amount_requested": 1000000,
+    "currency": "USD",
+    "purpose": "Describe the use of funds",
+    "requested_term_months": 60,
+    "loan_type": "Term loan, equipment-secured",
+    "collateral_offered": "Describe collateral",
+    "requested_rate_type": "Fixed"
+  },
+  "banking_relationship": {
+    "existing_customer": true,
+    "relationship_years": 3,
+    "prior_facilities": "Describe prior facilities or 'None'"
+  },
+  "notes": "Any qualitative context for the analyst."
+}

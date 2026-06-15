@@ -1,0 +1,21 @@
+# --- Core pipeline ---
+pdfplumber==0.11.4          # PDF statement parsing
+openpyxl==3.1.5             # Excel statement parsing
+pandas==2.2.3              # benchmark CSV handling
+reportlab==4.2.5           # PDF memo generation + mock financial generation
+
+# --- Policy RAG ---
+chromadb==0.5.20           # local vector store (ships a default local ONNX
+                           # MiniLM embedding model — no API key, no torch)
+
+# --- LLM ---
+anthropic==0.69.0          # Claude API client (scoring + memo synthesis)
+
+# --- Trigger ---
+requests==2.32.3           # calling the Langflow REST API
+
+# --- Langflow (the agent runtime). Heavy: pulls a large pinned dependency tree.
+#     Verified with langflow 1.10.0. Install into the same venv so the custom
+#     components can import lib/. Recommended to install it on its own line:
+#         pip install "langflow==1.10.0"
+langflow==1.10.0
