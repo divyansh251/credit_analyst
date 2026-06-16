@@ -7,17 +7,24 @@ Synthesises the ratio analysis, benchmark deviations, and policy findings into:
                              | "Decline" | "Refer to senior analyst"
     * narrative reasoning, key factors, and (where relevant) conditions.
 
-Two backends:
+Backends:
 
-* **Claude** (default when ``ANTHROPIC_API_KEY`` is set) — sends the pre-digested
+* **Claude** (used when ``ANTHROPIC_API_KEY`` is set) — sends the pre-digested
   evidence as JSON and asks ``claude-opus-4-8`` for a structured JSON verdict.
   The arithmetic/threshold work is already done deterministically upstream, so
   the model reasons over facts rather than parsing raw statements.
+* **Gemini** (used when ``GEMINI_API_KEY`` is set) — same prompt/contract via
+  Google's ``gemini-2.5-pro``.
 * **Mock** (offline fallback) — a deterministic engine that applies the policy's
   own Section-8 rating guidelines. Lets the whole pipeline produce a memo with
   no API key, and makes tests reproducible.
 
-Both backends return the same schema, so downstream memo rendering is identical.
+All backends return the same schema, so downstream memo rendering is identical.
+
+Provider selection (``score_risk``) honours the ``LLM_PROVIDER`` env var
+(``auto`` | ``anthropic`` | ``gemini``). In ``auto`` (the default) Claude wins
+when both keys are present; otherwise whichever key is set is used. Any LLM
+failure falls back to the deterministic mock engine.
 """
 
 from __future__ import annotations
@@ -32,7 +39,10 @@ REC_CONDITIONS = "Approve with conditions"
 REC_DECLINE = "Decline"
 REC_REFER = "Refer to senior analyst"
 
-DEFAULT_MODEL = os.environ.get("CLAUDE_MODEL", "claude-opus-4-8")
+DEFAULT_CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-opus-4-8")
+DEFAULT_GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-pro")
+# Backwards-compatible alias (older callers imported DEFAULT_MODEL).
+DEFAULT_MODEL = DEFAULT_CLAUDE_MODEL
 
 
 # --------------------------------------------------------------------------- #
@@ -158,7 +168,7 @@ def score_mock(evidence: dict) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# Claude backend
+# LLM backends (shared prompt + parsing)
 # --------------------------------------------------------------------------- #
 _SYSTEM_PROMPT = (
     "You are a senior commercial credit analyst. You are given pre-computed, "
@@ -173,7 +183,25 @@ _SYSTEM_PROMPT = (
 )
 
 
-def score_with_claude(evidence: dict, model: str = DEFAULT_MODEL,
+def _user_prompt(evidence: dict) -> str:
+    return ("Here is the analysis evidence as JSON. Produce the verdict JSON.\n\n"
+            + json.dumps(evidence, indent=2))
+
+
+def _parse_verdict(text: str, engine: str) -> dict:
+    """Parse a model's JSON reply into the verdict schema; tolerate code fences."""
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        text = text[text.find("{"): text.rfind("}") + 1]
+    verdict = json.loads(text)
+    verdict["engine"] = engine
+    verdict.setdefault("key_factors", [])
+    verdict.setdefault("conditions", [])
+    return verdict
+
+
+def score_with_claude(evidence: dict, model: str = DEFAULT_CLAUDE_MODEL,
                       api_key: Optional[str] = None) -> dict:
     """Call Claude for the risk verdict; raises on any API/parse failure."""
     import anthropic
@@ -183,37 +211,75 @@ def score_with_claude(evidence: dict, model: str = DEFAULT_MODEL,
         model=model,
         max_tokens=1500,
         system=_SYSTEM_PROMPT,
-        messages=[{
-            "role": "user",
-            "content": (
-                "Here is the analysis evidence as JSON. Produce the verdict JSON.\n\n"
-                + json.dumps(evidence, indent=2)
-            ),
-        }],
+        messages=[{"role": "user", "content": _user_prompt(evidence)}],
     )
-    text = "".join(block.text for block in message.content if block.type == "text").strip()
-    # Tolerate markdown-fenced JSON.
-    if text.startswith("```"):
-        text = text.strip("`")
-        text = text[text.find("{"): text.rfind("}") + 1]
-    verdict = json.loads(text)
-    verdict["engine"] = f"claude:{model}"
-    verdict.setdefault("key_factors", [])
-    verdict.setdefault("conditions", [])
-    return verdict
+    text = "".join(block.text for block in message.content if block.type == "text")
+    return _parse_verdict(text, f"claude:{model}")
+
+
+def score_with_gemini(evidence: dict, model: str = DEFAULT_GEMINI_MODEL,
+                      api_key: Optional[str] = None) -> dict:
+    """Call Gemini for the risk verdict; raises on any API/parse failure."""
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client(api_key=api_key or os.environ["GEMINI_API_KEY"])
+    response = client.models.generate_content(
+        model=model,
+        contents=_user_prompt(evidence),
+        config=types.GenerateContentConfig(
+            system_instruction=_SYSTEM_PROMPT,
+            max_output_tokens=1500,
+            response_mime_type="application/json",
+        ),
+    )
+    return _parse_verdict(response.text or "", f"gemini:{model}")
+
+
+# --------------------------------------------------------------------------- #
+# Provider selection
+# --------------------------------------------------------------------------- #
+def select_provider() -> Optional[str]:
+    """Resolve which LLM backend to use from env, or None for the mock engine.
+
+    ``LLM_PROVIDER`` (auto|anthropic|gemini) picks the backend; ``auto`` (default)
+    prefers Claude when both keys are set. Returns None when the requested/usable
+    provider has no API key configured.
+    """
+    preference = os.environ.get("LLM_PROVIDER", "auto").strip().lower()
+    has_anthropic = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    has_gemini = bool(os.environ.get("GEMINI_API_KEY"))
+
+    if preference == "anthropic":
+        return "anthropic" if has_anthropic else None
+    if preference == "gemini":
+        return "gemini" if has_gemini else None
+    # auto
+    if has_anthropic:
+        return "anthropic"
+    if has_gemini:
+        return "gemini"
+    return None
+
+
+_LLM_BACKENDS = {
+    "anthropic": score_with_claude,
+    "gemini": score_with_gemini,
+}
 
 
 def score_risk(application: dict, ratio_result: dict, benchmark_result: dict,
                policy_result: dict, prefer_llm: bool = True) -> dict:
-    """Score risk via Claude when a key is present, else the deterministic mock."""
+    """Score risk via the selected LLM when a key is present, else the mock."""
     evidence = build_evidence(application, ratio_result, benchmark_result, policy_result)
-    if prefer_llm and os.environ.get("ANTHROPIC_API_KEY"):
+    provider = select_provider() if prefer_llm else None
+    if provider:
         try:
-            verdict = score_with_claude(evidence)
+            verdict = _LLM_BACKENDS[provider](evidence)
             verdict["evidence"] = evidence
             return verdict
         except Exception as exc:
-            print(f"[scoring] Claude call failed ({exc!r}); falling back to mock engine")
+            print(f"[scoring] {provider} call failed ({exc!r}); falling back to mock engine")
     verdict = score_mock(evidence)
     verdict["evidence"] = evidence
     return verdict

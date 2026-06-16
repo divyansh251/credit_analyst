@@ -23,7 +23,7 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 from langflow.custom import Component
-from langflow.io import MessageTextInput, Output
+from langflow.io import FileInput, MessageTextInput, Output
 from langflow.schema import Data
 
 
@@ -35,9 +35,22 @@ class CreditApplicationIngestComponent(Component):
     name = "CreditApplicationIngest"
 
     inputs = [
+        FileInput(
+            name="application_file", display_name="Application JSON",
+            info="Optional. Upload the application_<id>.json directly. "
+                 "If set, this is used instead of the Application ID lookup.",
+            file_types=["json"], required=False,
+        ),
+        FileInput(
+            name="financials_file", display_name="Financials File",
+            info="Optional. Upload the financials file (xlsx/xls/pdf) directly. "
+                 "If set, this is used instead of the Application ID lookup.",
+            file_types=["xlsx", "xlsm", "xls", "pdf"], required=False,
+        ),
         MessageTextInput(
             name="application_id", display_name="Application ID",
-            info="e.g. 1001 — used to locate application_<id>.json and financials_<id>.*",
+            info="Used to locate application_<id>.json and financials_<id>.* when "
+                 "files are not uploaded above. e.g. 1001",
             value="1001",
         ),
         MessageTextInput(
@@ -48,7 +61,8 @@ class CreditApplicationIngestComponent(Component):
     ]
     outputs = [Output(name="bundle", display_name="Analysis Bundle", method="ingest")]
 
-    def _resolve(self, app_id: str, input_dir: str) -> tuple[str, str]:
+    def _resolve(self, app_id: str, input_dir: str) -> tuple[str | None, str | None]:
+        """Best-effort id-based lookup; returns (app_path|None, fin_path|None)."""
         search_dirs = [input_dir, os.path.join(_ROOT, "inputs"), os.path.join(_ROOT, "samples")]
         app_path = fin_path = None
         for d in search_dirs:
@@ -61,10 +75,6 @@ class CreditApplicationIngestComponent(Component):
                 cand_fin = os.path.join(d, f"financials_{app_id}{ext}")
                 if fin_path is None and os.path.isfile(cand_fin):
                     fin_path = cand_fin
-        if not app_path or not fin_path:
-            raise FileNotFoundError(
-                f"Could not locate application_{app_id}.json and financials_{app_id}.* "
-                f"in {search_dirs}")
         return app_path, fin_path
 
     def ingest(self) -> Data:
@@ -72,10 +82,32 @@ class CreditApplicationIngestComponent(Component):
 
         app_id = (self.application_id or "").strip()
         input_dir = (self.input_dir or "").strip()
-        app_path, fin_path = self._resolve(app_id, input_dir)
+
+        # Uploaded files take precedence; fall back to id-based lookup for any
+        # file that wasn't uploaded.
+        app_path = (self.application_file or "").strip() or None
+        fin_path = (self.financials_file or "").strip() or None
+        if app_path is None or fin_path is None:
+            r_app, r_fin = self._resolve(app_id, input_dir)
+            app_path = app_path or r_app
+            fin_path = fin_path or r_fin
+
+        missing = []
+        if not app_path:
+            missing.append("application JSON")
+        if not fin_path:
+            missing.append("financials file (xlsx/pdf)")
+        if missing:
+            raise FileNotFoundError(
+                "Missing " + " and ".join(missing) + ": upload the file(s) on the node, "
+                f"or place application_{app_id}.json / financials_{app_id}.* in "
+                f"{input_dir or os.path.join(_ROOT, 'inputs')}.")
 
         with open(app_path, encoding="utf-8") as fh:
             application = json.load(fh)
+        # Prefer the id inside the uploaded JSON so it stays correct even when the
+        # Application ID box still holds its default.
+        app_id = str(application.get("application_id") or app_id or "").strip()
         parsed = parse_financials(fin_path)
         if not parsed.get("sector_code"):
             parsed["sector_code"] = application.get("applicant", {}).get("sector_code")
