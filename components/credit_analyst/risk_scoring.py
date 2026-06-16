@@ -10,14 +10,15 @@ from __future__ import annotations
 import os
 import sys
 
-_ROOT = os.environ.get("CREDIT_ANALYST_ROOT")
-if not _ROOT:
+_ROOT = os.environ.get("CREDIT_ANALYST_ROOT") or os.getcwd()
+if not os.path.isdir(os.path.join(_ROOT, "lib")):  # CLI/test fallback (skipped under Langflow exec)
     try:
         _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    except NameError:  # pragma: no cover
-        _ROOT = os.getcwd()
-if _ROOT not in sys.path:
-    sys.path.insert(0, _ROOT)
+    except (NameError, TypeError):  # __file__ missing or None (Langflow exec)  # pragma: no cover
+        pass
+# Langflow's component loader only runs module-level imports/assignments (not `if`/expr
+# statements), so sys.path must be updated via assignment, not sys.path.insert(...).
+sys.path = [_ROOT, *sys.path] if _ROOT not in sys.path else sys.path
 
 from langflow.custom import Component
 from langflow.io import DataInput, DropdownInput, MessageTextInput, Output, SecretStrInput
